@@ -20,9 +20,9 @@
 #include <pthread.h>
 
 #define SOCKET_LISTEN_QUEUE_SIZE 10
-#define FIFO_READ_BUFFER_SIZE 128
 #define SOCKET_RECV_BUF_SIZE 512
-#define AUTHENTIC_KEY "xiaoqingxinzuiqingxin"
+#define AUTHENTIC_SUCCESS_RETURN "success"
+#define AUTHENTIC_FAIL_RETURN "fail"
 #define SOCKET_FILE_PATH "/tmp/access_socket"
 
 int client_connecting = 0;
@@ -159,11 +159,7 @@ void* start_local_socket(void* arg)
         	}
         	else
         	{
-        		recv_buf[0] ='f';
-        		recv_buf[1] ='a';
-        		recv_buf[2] ='i';
-        		recv_buf[3] ='l';
-        		recv_buf[4] ='\0';
+        		memcpy(recv_buf, "fail", sizeof("fail"));
         	}
             pthread_mutex_unlock(&client_socket_lock);
         	/* Send data to WeiXin */
@@ -174,6 +170,7 @@ void* start_local_socket(void* arg)
             	close(wx_fd);
         		break;
         	}
+        	puts(recv_buf);
         }
     }
 }
@@ -181,9 +178,9 @@ void* start_local_socket(void* arg)
 int main(int argc, char* argv[])
 {
 	int ret = 0;
-    if (argc != 2)
+    if (argc != 3)
     {
-        puts("Usage:access_server server_port\n");
+        puts("Usage:access_server server_port key\n");
         return 1;
     }
 	/* Thread which runs local socket */
@@ -248,10 +245,11 @@ int main(int argc, char* argv[])
         memset(authentic_return, 0, sizeof(authentic_return));
         /* Check if authentic data is OK */
         /* If authentic success */
-        if (strcmp(recv_buf, AUTHENTIC_KEY) == 0)
+        char* key = argv[2];
+        if (strcmp(recv_buf, key) == 0)
         {
-        	ret = send(client_socket_fd, "success", 7 + 1, 0);
-        	if (ret < 0)
+        	ret = send(client_socket_fd, AUTHENTIC_SUCCESS_RETURN, sizeof(AUTHENTIC_SUCCESS_RETURN), 0);
+        	if (ret <= 0)
         	{
                 perror("Client disconnected");
             	close(client_socket_fd);
@@ -261,14 +259,26 @@ int main(int argc, char* argv[])
             puts("Client authenticate successfully");
     		pthread_mutex_unlock(&client_socket_lock);
     		/* Wait condition. If client is online, keep being blocked */
+    		/*
     		pthread_mutex_lock(&cond_lock);
     		pthread_cond_wait(&client_online_cond, &cond_lock);
     		pthread_mutex_unlock(&cond_lock);
+    		*/
+    		char buf[128];
+    		while (1)
+    		{
+    			memset(buf, 0, sizeof(buf));
+    			scanf("%s", buf);
+    			send(client_socket_fd, buf, sizeof(buf), 0);
+    			memset(buf, 0, sizeof(buf));
+    			recv(client_socket_fd, buf, sizeof(buf), 0);
+    			puts(buf);
+    		}
         }
         /* If authentic fail */
         else
         {
-        	send(client_socket_fd, "fail", 4 + 1, 0);
+        	send(client_socket_fd, AUTHENTIC_FAIL_RETURN, sizeof(AUTHENTIC_FAIL_RETURN), 0);
             puts("Client authenticate failed");
             close(client_socket_fd);
     		pthread_mutex_unlock(&client_socket_lock);

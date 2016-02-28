@@ -16,7 +16,24 @@
 #include <string.h>
 
 #define SOCKET_RECV_BUF_SIZE 512
-#define AUTHENTIC_KEY "xiaoqingxinzuiqingxin"
+
+#define DISCONNECT(fd, log) \
+    do \
+	{ \
+	    puts( (log) ); \
+	    close( (fd) ); \
+	    sleep(2); \
+	} \
+    while(0)
+
+#define DISCONNECT_PERROR(fd, log) \
+	do \
+	{ \
+		perror( (log) ); \
+		close( (fd) ); \
+		sleep(2); \
+	} \
+	while(0)
 
 /*
  * @return a file descriptor for the new socket, or -1 for errors.
@@ -61,18 +78,22 @@ int create_socket()
 
 int main(int argc, char* argv[])
 {
+	int ret = 0;
     if (argc != 3)
     {
-        puts("Usage:access_client server_ip server_port");
+        puts("Usage:access_client server_address key");
         return 1;
     }
     int socket_fd;
     /* Set the server address */
+    char* ip_str = strtok(argv[1], ":");
+    char* port_str = strtok(NULL, ":");
     struct sockaddr_in server_address;
     memset(&server_address, 0, sizeof(struct sockaddr_in));
     server_address.sin_family = AF_INET;
-    server_address.sin_port = htons(atoi(argv[2]));
-    if (inet_pton(AF_INET, argv[1], &server_address.sin_addr) <= 0)
+    server_address.sin_port = htons(atoi(port_str));
+    ret = inet_pton(AF_INET, ip_str, &server_address.sin_addr);
+    if (ret <= 0)
     {
         puts("Error occurs when converting the IP string to bytes");
         return -1;
@@ -80,9 +101,6 @@ int main(int argc, char* argv[])
     /* The information to be output on console */
 	char info[128] = "Connecting to the server ";
 	strcat(info, argv[1]);
-	strcat(info, ":");
-	strcat(info, argv[2]);
-	strcat(info, "...");
 	/* Connect the server*/
     while(1)
     {
@@ -94,11 +112,10 @@ int main(int argc, char* argv[])
     	}
         /* Connect the server */
     	puts(info);
-        if (connect(socket_fd, (struct sockaddr*)&server_address, sizeof(struct sockaddr_in)) < 0)
+    	ret = connect(socket_fd, (struct sockaddr*)&server_address, sizeof(struct sockaddr_in));
+        if (ret < 0)
         {
-            perror("Cannot connect to server, reconnect later");
-            close(socket_fd);
-            sleep(2);
+        	DISCONNECT_PERROR(socket_fd, "Cannot connect to server, reconnect later");
             continue;
         }
         puts("Connect server successfully");
@@ -109,10 +126,12 @@ int main(int argc, char* argv[])
          * if failed for 3 times, reconnect to the server
          */
         int send_success = 0;
+        char* key = argv[2];
         int i;
         for (i = 0; i < 3; i++)
         {
-            if (send(socket_fd, AUTHENTIC_KEY, sizeof(AUTHENTIC_KEY), 0) > 0)
+        	ret = send(socket_fd, key, strlen(key) + 1, 0);
+            if (ret > 0)
             {
             	send_success = 1;
             	break;
@@ -120,39 +139,44 @@ int main(int argc, char* argv[])
         }
         if (!send_success)
         {
-        	perror("Failed to send the authentic data to the server, reconnect later");
-        	close(socket_fd);
+        	DISCONNECT_PERROR(socket_fd, "Failed to send the authentic data to the server, reconnect later");
         	continue;
         }
         char recv_buf[SOCKET_RECV_BUF_SIZE];
-    	if (recv(socket_fd, recv_buf, sizeof(recv_buf), 0) > 0)
+        ret = recv(socket_fd, recv_buf, sizeof(recv_buf), 0);
+    	if (ret > 0)
     	{
-    		puts(recv_buf);
     		if (strcmp(recv_buf, "success") != 0)
     		{
-    			puts("Authentic failed");
-    			close(socket_fd);
+            	DISCONNECT(socket_fd, "Authentic failed");
     			return 1;
     		}
     	}
     	else
     	{
-        	perror("Server disconnected, reconnect later");
-        	close(socket_fd);
+        	DISCONNECT_PERROR(socket_fd, "Server disconnected, reconnect later");
         	continue;
     	}
 		puts("Successfully authenticated");
         /* Receive data from the server */
         while(1)
         {
-        	if (recv(socket_fd, recv_buf, sizeof(recv_buf), 0) > 0)
+        	ret = recv(socket_fd, recv_buf, sizeof(recv_buf), 0);
+        	if (ret > 0)
         	{
-        		puts("data received");
+        		printf("%s", "data received : ");
+        		puts(recv_buf);
+        		/* Send data back */
+        		ret = send(socket_fd, "success", sizeof("success"), 0);
+        		if (ret <= 0)
+        		{
+        			DISCONNECT(socket_fd, "Server disconnected, reconnect later");
+                    break;
+        		}
         	}
         	else
         	{
-                puts("Server disconnected, reconnect later");
-                sleep(2);
+    			DISCONNECT(socket_fd, "Server disconnected, reconnect later");
                 break;
         	}
         }
