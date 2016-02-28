@@ -1,5 +1,5 @@
 /*============================================================================
- * Name        : access_server.cpp
+ * Name        : access_server.c
  * Author      : fallenworld
  * Version     : 0.1
  * Copyright   :
@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/un.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -16,11 +17,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
+#include <pthread.h>
 
 #define SOCKET_LISTEN_QUEUE_SIZE 10
 #define FIFO_READ_BUFFER_SIZE 128
 #define SOCKET_RECV_BUF_SIZE 512
 #define AUTHENTIC_KEY "xiaoqingxinzuiqingxin"
+#define SOCKET_FILE_PATH "/tmp/access_socket"
+
+int client_connecting = 0;
+int client_socket_fd = -1;
+pthread_mutex_t client_socket_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t cond_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t client_online_cond = PTHREAD_COND_INITIALIZER;
 
 /*
  * @return a file descriptor for the new socket, or -1 for errors.
@@ -63,100 +72,213 @@ int create_socket()
 }
 
 /*
- * create a FIFO and start to watch it
+ * create a local socket to receive data from WeiXin
  */
-void start_fifo(int client_socket_fd)
+void* start_local_socket(void* arg)
 {
-    const char* fifo_name = "fifo.tmp";
-    if (mkfifo(fifo_name, 0777) != 0)
+	int ret;
+	/* Create socket */
+	int local_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (local_fd < 0)
+	{
+        perror("Fail to create local socket");
+        exit(1);
+	}
+	/* Set the socket address */
+    unlink(SOCKET_FILE_PATH);
+    struct sockaddr_un address;
+    memset(&address, 0, sizeof(address));
+    address.sun_family = AF_UNIX;
+    strcpy(address.sun_path, SOCKET_FILE_PATH);
+    /* bind */
+    ret = bind(local_fd, (struct sockaddr*)&address, sizeof(address));
+    if (ret < 0)
     {
-    	puts("Cannot create FIFO");
-    	return;
+        perror("Local socket bind failed");
+        exit(1);
     }
-    int fd;
-    char read_buf[FIFO_READ_BUFFER_SIZE];
+    /* listen */
+    ret = listen(local_fd, SOCKET_LISTEN_QUEUE_SIZE);
+    if (ret < 0)
+    {
+    	perror("Local socket listen failed");
+    	exit(1);
+    }
+    /* main loop, handle data from WeiXin */
     while (1)
     {
-    	fd = open(fifo_name, O_RDONLY);
-    	read(fd, read_buf, FIFO_READ_BUFFER_SIZE);
-    	close(fd);
-    	if (send(client_socket_fd, read_buf, strlen(read_buf) + 1, 0) < 0)
-    	{
-    		return ;
-    	}
-
+    	/* Wait WeiXin server to connect */
+        int wx_fd = accept(local_fd, NULL, NULL);
+        if (wx_fd < 0)
+        {
+        	close(wx_fd);
+        	continue;
+        }
+        puts("WeiXin server connected");
+        char recv_buf[SOCKET_RECV_BUF_SIZE];
+        memset(recv_buf, 0, sizeof(recv_buf));
+        while (1)
+        {
+        	/* Receive data from WeiXin */
+        	ret = recv(wx_fd, recv_buf, sizeof(recv_buf), 0) < 0;
+        	if (ret < 0)
+        	{
+                perror("WeiXin server disconnected");
+            	close(wx_fd);
+        		break;
+        	}
+        	/* Send data to raspberry*/
+        	pthread_mutex_lock(&client_socket_lock);
+        	ret = send(client_socket_fd, recv_buf, strlen(recv_buf) + 1, 0);
+        	int send_success = 1;
+        	if (ret < 0)
+        	{
+                perror("Client disconnected");
+                close(client_socket_fd);
+                send_success = 0;
+                pthread_mutex_unlock(&client_socket_lock);
+                /* Weak up the main thread */
+            	pthread_mutex_lock(&cond_lock);
+            	pthread_cond_signal(&client_online_cond);
+                pthread_mutex_unlock(&cond_lock);
+        	}
+        	/* Receive data from raspberry*/
+        	memset(recv_buf, 0, sizeof(recv_buf));
+        	if (send_success)
+        	{
+            	ret = recv(client_socket_fd, recv_buf, sizeof(recv_buf), 0) < 0;
+            	if (ret < 0)
+            	{
+                    perror("Client disconnected");
+                    close(client_socket_fd);
+                    /* Weak up the main thread */
+                	pthread_mutex_lock(&cond_lock);
+                	pthread_cond_signal(&client_online_cond);
+                    pthread_mutex_unlock(&cond_lock);
+            	}
+        	}
+        	else
+        	{
+        		recv_buf[0] ='f';
+        		recv_buf[1] ='a';
+        		recv_buf[2] ='i';
+        		recv_buf[3] ='l';
+        		recv_buf[4] ='\0';
+        	}
+            pthread_mutex_unlock(&client_socket_lock);
+        	/* Send data to WeiXin */
+        	ret = send(wx_fd, recv_buf, strlen(recv_buf) + 1, 0);
+        	if (ret < 0)
+        	{
+                perror("WeiXin server disconnected");
+            	close(wx_fd);
+        		break;
+        	}
+        }
     }
 }
 
 int main(int argc, char* argv[])
 {
+	int ret = 0;
     if (argc != 2)
     {
         puts("Usage:access_server server_port\n");
         return 1;
     }
+	/* Thread which runs local socket */
+    pthread_t local_socket_thread;
+    ret = pthread_create(&local_socket_thread, NULL, start_local_socket, NULL);
+    if (ret != 0)
+    {
+    	puts("Cannot create thread");
+    	return 1;
+    }
+    /* Create socket */
     int socket_fd = create_socket();
     if (socket_fd < 0)
     {
-        puts("Failed to create socket");
+        puts("Failed to create remote socket");
         return 1;
     }
-    /* Bind to port */
+	/* Set the socket address */
     struct sockaddr_in server_address;
     memset(&server_address, 0, sizeof(struct sockaddr_in));
     server_address.sin_family = AF_INET;
     server_address.sin_port = htons(atoi(argv[1]));
     server_address.sin_addr.s_addr = htonl(INADDR_ANY);
-    if (bind(socket_fd, (struct sockaddr*)&server_address, sizeof(struct sockaddr_in)) < 0)
+    /* Bind to port */
+    ret = bind(socket_fd, (struct sockaddr*)&server_address, sizeof(struct sockaddr_in));
+    if ( ret < 0)
     {
-        perror("Socket bind failed");
+        perror("Remote Socket bind failed");
         return 1;
     }
     /* Listen */
-    if (listen(socket_fd, SOCKET_LISTEN_QUEUE_SIZE) < 0)
+    ret = listen(socket_fd, SOCKET_LISTEN_QUEUE_SIZE);
+    if (ret < 0)
     {
-        perror("Socket listen failed");
+        perror("Remote Socket listen failed");
         return 1;
     }
-    /* Main loop, wait for a client to connect */
-    int client_socket_fd;
+    /* Main loop, wait for the raspberry to connect */
     char recv_buf[SOCKET_RECV_BUF_SIZE];
-    while(1)
+    memset(recv_buf, 0, sizeof(recv_buf));
+    while (1)
     {
+        pthread_mutex_lock(&client_socket_lock);
     	client_socket_fd = accept(socket_fd, NULL, NULL);
     	if (client_socket_fd < 0)
     	{
     		close(client_socket_fd);
+    		pthread_mutex_unlock(&client_socket_lock);
     		continue;
     	}
         puts("Client connected");
-        if (recv(client_socket_fd, recv_buf, sizeof(recv_buf), 0) < 0)
+        /* Receive authentic data form raspberry */
+        ret = recv(client_socket_fd, recv_buf, sizeof(recv_buf), 0);
+        if (ret < 0)
         {
             perror("Client disconnected");
         	close(client_socket_fd);
+    		pthread_mutex_unlock(&client_socket_lock);
     		continue;
         }
         char authentic_return[8];
+        memset(authentic_return, 0, sizeof(authentic_return));
+        /* Check if authentic data is OK */
+        /* If authentic success */
         if (strcmp(recv_buf, AUTHENTIC_KEY) == 0)
         {
-        	if (send(client_socket_fd, "success", 8, 0) < 0)
+        	ret = send(client_socket_fd, "success", 7 + 1, 0);
+        	if (ret < 0)
         	{
                 perror("Client disconnected");
             	close(client_socket_fd);
+        		pthread_mutex_unlock(&client_socket_lock);
         		continue;
         	}
             puts("Client authenticate successfully");
-            start_fifo(client_socket_fd);
-            perror("Client disconnected");
-        	close(client_socket_fd);
+    		pthread_mutex_unlock(&client_socket_lock);
+    		/* Wait condition. If client is online, keep being blocked */
+    		pthread_mutex_lock(&cond_lock);
+    		pthread_cond_wait(&client_online_cond, &cond_lock);
+    		pthread_mutex_unlock(&cond_lock);
         }
+        /* If authentic fail */
         else
         {
-        	send(client_socket_fd, "fail", 5, 0);
+        	send(client_socket_fd, "fail", 4 + 1, 0);
             puts("Client authenticate failed");
             close(client_socket_fd);
+    		pthread_mutex_unlock(&client_socket_lock);
         }
-
+    }
+    ret = pthread_join(local_socket_thread, NULL);
+    if (ret != 0)
+    {
+    	puts("Cannot join thread");
+    	return 1;
     }
     return 0;
 }
