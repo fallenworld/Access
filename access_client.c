@@ -19,21 +19,21 @@
 
 #define DISCONNECT(fd, log) \
     do \
-	{ \
-	    puts( (log) ); \
-	    close( (fd) ); \
-	    sleep(2); \
-	} \
+    { \
+        puts( (log) ); \
+        close( (fd) ); \
+        sleep(2); \
+    } \
     while(0)
 
 #define DISCONNECT_PERROR(fd, log) \
-	do \
-	{ \
-		perror( (log) ); \
-		close( (fd) ); \
-		sleep(2); \
-	} \
-	while(0)
+    do \
+    { \
+        perror( (log) ); \
+        close( (fd) ); \
+        sleep(2); \
+    } \
+    while(0)
 
 /*
  * @return a file descriptor for the new socket, or -1 for errors.
@@ -54,23 +54,23 @@ int create_socket()
     int keep_count = 3;
     if (setsockopt(socket_fd, SOL_SOCKET, SO_KEEPALIVE, &keep_alive, sizeof(keep_alive)) < 0)
     {
-    	perror("Cannot set socket property SO_KEEPALIVE");
-    	return -1;
+        perror("Cannot set socket property SO_KEEPALIVE");
+        return -1;
     }
     if (setsockopt(socket_fd, SOL_TCP, TCP_KEEPIDLE, &keep_time, sizeof(keep_time)) < 0)
     {
-    	perror("Cannot set socket property TCP_KEEPIDLE");
-    	return -1;
+        perror("Cannot set socket property TCP_KEEPIDLE");
+        return -1;
     }
     if (setsockopt(socket_fd, SOL_TCP, TCP_KEEPINTVL, &keep_interval, sizeof(keep_interval)) < 0)
     {
-    	perror("Cannot set socket property TCP_KEEPINTVL");
-    	return -1;
+        perror("Cannot set socket property TCP_KEEPINTVL");
+        return -1;
     }
     if (setsockopt(socket_fd, SOL_TCP, TCP_KEEPCNT, &keep_count, sizeof(keep_count)) < 0)
     {
-    	perror("Cannot set socket property TCP_KEEPCNT");
-    	return -1;
+        perror("Cannot set socket property TCP_KEEPCNT");
+        return -1;
     }
     return socket_fd;
 }
@@ -78,7 +78,7 @@ int create_socket()
 
 int main(int argc, char* argv[])
 {
-	int ret = 0;
+    int ret = 0;
     if (argc != 3)
     {
         puts("Usage:access_client server_address key");
@@ -99,23 +99,23 @@ int main(int argc, char* argv[])
         return -1;
     }
     /* The information to be output on console */
-	char info[128] = "Connecting to the server ";
-	strcat(info, argv[1]);
-	/* Connect the server*/
+    char info[128] = "Connecting to the server ";
+    strcat(info, argv[1]);
+    /* Connect the server*/
     while(1)
     {
-    	socket_fd = create_socket();
-    	if (socket_fd < 0)
-    	{
-    	    puts("Failed to create socket");
-    	    return 1;
-    	}
+        socket_fd = create_socket();
+        if (socket_fd < 0)
+        {
+            puts("Failed to create socket");
+            return 1;
+        }
         /* Connect the server */
-    	puts(info);
-    	ret = connect(socket_fd, (struct sockaddr*)&server_address, sizeof(struct sockaddr_in));
+        puts(info);
+        ret = connect(socket_fd, (struct sockaddr*)&server_address, sizeof(struct sockaddr_in));
         if (ret < 0)
         {
-        	DISCONNECT_PERROR(socket_fd, "Cannot connect to server, reconnect later");
+            DISCONNECT_PERROR(socket_fd, "Cannot connect to server, reconnect later");
             continue;
         }
         puts("Connect server successfully");
@@ -130,55 +130,55 @@ int main(int argc, char* argv[])
         int i;
         for (i = 0; i < 3; i++)
         {
-        	ret = send(socket_fd, key, strlen(key) + 1, 0);
+            ret = send(socket_fd, key, strlen(key) + 1, 0);
             if (ret > 0)
             {
-            	send_success = 1;
-            	break;
+                send_success = 1;
+                break;
             }
         }
         if (!send_success)
         {
-        	DISCONNECT_PERROR(socket_fd, "Failed to send the authentic data to the server, reconnect later");
-        	continue;
+            DISCONNECT_PERROR(socket_fd, "Failed to send the authentic data to the server, reconnect later");
+            continue;
         }
         char recv_buf[SOCKET_RECV_BUF_SIZE];
         ret = recv(socket_fd, recv_buf, sizeof(recv_buf), 0);
-    	if (ret > 0)
-    	{
-    		if (strcmp(recv_buf, "success") != 0)
-    		{
-            	DISCONNECT(socket_fd, "Authentic failed");
-    			return 1;
-    		}
-    	}
-    	else
-    	{
-        	DISCONNECT_PERROR(socket_fd, "Server disconnected, reconnect later");
-        	continue;
-    	}
-		puts("Successfully authenticated");
+        if (ret > 0)
+        {
+            if (strcmp(recv_buf, "success") != 0)
+            {
+                DISCONNECT(socket_fd, "Authentic failed");
+                return 1;
+            }
+        }
+        else
+        {
+            DISCONNECT_PERROR(socket_fd, "Server disconnected, reconnect later");
+            continue;
+        }
+        puts("Successfully authenticated");
         /* Receive data from the server */
         while(1)
         {
-        	ret = recv(socket_fd, recv_buf, sizeof(recv_buf), 0);
-        	if (ret > 0)
-        	{
-        		printf("%s", "data received : ");
-        		puts(recv_buf);
-        		/* Send data back */
-        		ret = send(socket_fd, "success", sizeof("success"), 0);
-        		if (ret <= 0)
-        		{
-        			DISCONNECT(socket_fd, "Server disconnected, reconnect later");
+            ret = recv(socket_fd, recv_buf, sizeof(recv_buf), 0);
+            if (ret > 0)
+            {
+                printf("%s", "data received : ");
+                puts(recv_buf);
+                /* Send data back */
+                ret = send(socket_fd, "success", sizeof("success"), 0);
+                if (ret <= 0)
+                {
+                    DISCONNECT(socket_fd, "Server disconnected, reconnect later");
                     break;
-        		}
-        	}
-        	else
-        	{
-    			DISCONNECT(socket_fd, "Server disconnected, reconnect later");
+                }
+            }
+            else
+            {
+                DISCONNECT(socket_fd, "Server disconnected, reconnect later");
                 break;
-        	}
+            }
         }
     }
     return 0;
