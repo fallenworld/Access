@@ -32,7 +32,7 @@ int client_connected = 0;
 pthread_mutex_t connected_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t response_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t request_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t response_cond = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t response_cond = PTHREAD_COND_INITIALIZER;
 pthread_cond_t request_cond = PTHREAD_COND_INITIALIZER;
 
 /*
@@ -110,7 +110,7 @@ void* start_local_socket(void* arg)
     }
     /* main loop, handle data from WeiXin */
     int wx_fd = 0;
-    while (1)
+    for (;;)
     {
         /* Wait WeiXin server to connect */
     	wx_fd = accept(local_fd, NULL, NULL);
@@ -121,12 +121,12 @@ void* start_local_socket(void* arg)
         }
         puts("WeiXin server connected");
         char recv_buf[SOCKET_BUF_SIZE];
-        memset(recv_buf, 0, sizeof(recv_buf));
-        while (1)
+        for(;;)
         {
+            memset(recv_buf, 0, sizeof(recv_buf));
             /* Receive data from WeiXin */
-            ret = recv(wx_fd, recv_buf, sizeof(recv_buf), 0) < 0;
-            if (ret < 0)
+            ret = recv(wx_fd, recv_buf, SOCKET_BUF_SIZE, 0);
+            if (ret <= 0)
             {
                 perror("WeiXin server disconnected");
                 close(wx_fd);
@@ -148,7 +148,7 @@ void* start_local_socket(void* arg)
                 pthread_mutex_lock(&response_lock);
                 while (response_buf[0] == 0)
                 {
-                	pthread_cond_wait(&response_cond);
+                	pthread_cond_wait(&response_cond, &response_lock);
                 }
                 pthread_mutex_unlock(&response_lock);
                 response = response_buf;
@@ -168,6 +168,7 @@ void* start_local_socket(void* arg)
             memset(response_buf, 0, SOCKET_BUF_SIZE);
         }
     }
+    return NULL;
 }
 
 int main(int argc, char* argv[])
@@ -218,7 +219,7 @@ int main(int argc, char* argv[])
     /* Main loop, wait for the raspberry to connect */
     char recv_buf[SOCKET_BUF_SIZE];
     int client_socket_fd = 0;
-    while (1)
+    for(;;)
     {
         memset(recv_buf, 0, sizeof(recv_buf));
         client_socket_fd = accept(socket_fd, NULL, NULL);
@@ -258,15 +259,15 @@ int main(int argc, char* argv[])
             struct timeval timeout = {4, 0};
             setsockopt(client_socket_fd, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
             /* Wait data from local socket */
-            while (1)
+            for (;;)
             {
                 pthread_mutex_lock(&request_lock);
                 while (request_buf[0] == 0)
                 {
-                	pthread_cond_wait(&request_cond);
+                	pthread_cond_wait(&request_cond, &request_lock);
                 }
                 pthread_mutex_unlock(&request_lock);
-                printf("Send \"%s\" to raspberry", request_buf);
+                printf("Send \"%s\" to raspberry\n", request_buf);
                 /* Send data to raspberry*/
                 ret = send(client_socket_fd, request_buf, strlen(request_buf) + 1, 0);
                 if (ret < 0)
@@ -278,9 +279,9 @@ int main(int argc, char* argv[])
                 memset(request_buf, 0, SOCKET_BUF_SIZE);
                 /* Receive data from raspberry*/
                 memset(recv_buf, 0, sizeof(recv_buf));
-                ret = recv(client_socket_fd, recv_buf, sizeof(recv_buf), 0) < 0;
+                ret = recv(client_socket_fd, recv_buf, sizeof(recv_buf), 0);
                 char* response;
-                if (ret < 0)
+                if (ret <= 0)
                 {
                 	if (errno == EAGAIN)
                 	{
@@ -298,11 +299,15 @@ int main(int argc, char* argv[])
                 {
                 	response = recv_buf;
                 }
+                /* Wake up the local socket thread */
                 pthread_mutex_lock(&response_lock);
                 strcpy(response_buf, response);
                 pthread_cond_signal(&response_cond);
                 pthread_mutex_unlock(&response_lock);
             }
+            pthread_mutex_lock(&connected_lock);
+            client_connected = 1;
+            pthread_mutex_unlock(&connected_lock);
         }
         /* If authentic fail */
         else

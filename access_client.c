@@ -81,7 +81,7 @@ int main(int argc, char* argv[])
     int ret = 0;
     if (argc != 3)
     {
-        puts("Usage:access_client server_address key");
+        puts("Usage : access_client server_address key");
         return 1;
     }
     int socket_fd;
@@ -102,7 +102,7 @@ int main(int argc, char* argv[])
     char info[128] = "Connecting to the server ";
     strcat(info, argv[1]);
     /* Connect the server*/
-    while(1)
+    for (;;)
     {
         socket_fd = create_socket();
         if (socket_fd < 0)
@@ -159,13 +159,12 @@ int main(int argc, char* argv[])
         }
         puts("Successfully authenticated");
         /* Receive data from the server */
-        while(1)
+        for (;;)
         {
             ret = recv(socket_fd, recv_buf, sizeof(recv_buf), 0);
             if (ret > 0)
             {
-                printf("%s", "data received : ");
-                puts(recv_buf);
+                printf("data received : %s\n", recv_buf);
                 /* Send data back */
                 ret = send(socket_fd, "success", sizeof("success"), 0);
                 if (ret <= 0)
