@@ -75,6 +75,21 @@ int create_socket()
     return socket_fd;
 }
 
+int open()
+{
+    return 1;
+}
+
+int close()
+{
+	return 1;
+}
+
+int getState()
+{
+	return 1;
+}
+
 
 int main(int argc, char* argv[])
 {
@@ -165,6 +180,20 @@ int main(int argc, char* argv[])
             if (ret > 0)
             {
                 printf("data received : %s\n", recv_buf);
+                char* info;
+                int return_code = 0;
+                if (strcmp(recv_buf, "open"))
+                {
+                	return_code = open();
+                }
+                else if (strcmp(recv_buf, "close"))
+                {
+                	return_code = close();
+                }
+                else if (strcmp(recv_buf, "getState"))
+                {
+                	return_code = getState();
+                }
                 /* Send data back */
                 ret = send(socket_fd, "success", sizeof("success"), 0);
                 if (ret <= 0)
