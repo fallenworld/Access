@@ -2,16 +2,19 @@
 #raspberry : compile on the raspberry
 #server : compile on the server
 #debug : debug mode, it will compile both the raspberry code and the server code
-config = debug
+#config = debug
 
-ifeq ($(config), debug)
-all:access_server access_client
-else ifeq ($(config), server)
-all:access_server
-else ifeq ($(config), raspberry)
-all:access_client
-endif
+#ifeq ($(config), debug)
+#all:access_server access_client
+#else ifeq ($(config), server)
+#all:access_server
+#else ifeq ($(config), raspberry)
+#all:access_client
+#endif
 
+server:access_server
+debug:access_server access_client
+client:access_client
 access_server:access_server.c
 	cc access_server.c -O2 -pthread -o access_server
 access_client:access_client.c
