@@ -20,6 +20,11 @@
 #include <pthread.h>
 #include <errno.h>
 
+// GPIO head file on raspberry
+#ifdef TARGET_RASPBERRY
+#include <>
+#endif
+
 #define SOCKET_LISTEN_QUEUE_SIZE 10
 #define SOCKET_BUF_SIZE 512
 #define AUTHENTIC_SUCCESS_RETURN "success"
