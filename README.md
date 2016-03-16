@@ -62,37 +62,51 @@ access_server程序运行之后，会在它所在的目录创建一个名为acce
 
 连接上之后，接着微信程序就可以向socket发送字符串来控制门禁，这里我们将发送的字符串称为命令，每一个命令可以实现一个控制门禁的功能（例如发送"openDoor"就是开门），在发送了命令之后，access_server程序也会返回来一个字符串，来告诉微信程序命令执行的结果，acccess_server返回的字符串格式如下：
 
-"success/fail:返回信息"
+    "success/fail:返回信息"
 
 解释：（注意返回的字符串中并不包含双引号，这里用双引号是为了说明这是一个字符串）返回的字符串一开头是success或者fail，success代表本次命令执行成功，fail代表失败。紧接着是一个冒号，在紧着是返回信息。但也有例外，那就是返回的字符串中有可能不包含冒号和返回信息，只有一个success或fail
 
 下面是详细的通信文档：
 
-**通信方式：**Unix域的流式socket
+**通信方式：** Unix域的流式socket
 
-**通信地址：**access_server文件所在的目录/access_socket
+**通信地址：** access_server文件所在的目录/access_socket
 
 **命令文档**：
 
-1. openDoor：打开门禁
+openDoor：打开门禁
 
-    返回信息："success"或者"fail:失败原因"
+返回信息："success"或者"fail:失败原因"
 
     返回示例："success"，"fail"，"fail:cannot open door"
 
 
-2. closeDoor:关上门禁 
+closeDoor:关上门禁 
 
-    返回信息："success"或者"fail:失败原因"
+返回信息："success"或者"fail:失败原因"
 
     返回示例："success"，"fail"，"fail:cannot close door"
 
-3. getState：获取当前门的状态
+getState：获取当前门的状态 
 
-    返回信息："success:closed/opened"或者"fail:失败原因"
+返回信息："success:closed/opened"或者"fail:失败原因"
 
     返回示例："success:closed"，"success:opened"，"fail:cannot get state"
 
+
+**代码示例：**
+
+    #发送一个开门命令，并等待返回信息，然后断开连接
+	import socket
+
+	address = "./access_socket"  #通信地址
+	sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  #创建socket
+	sock.connect(address)  #和access_server程序建立连接
+	sock.send("openDoor")  #发送开门命令
+	data = sock.recv(512)  #获取返回信息
+    sock.close()           #断开连接
+
+以上的代码发送了一次命令就立刻断开了连接，实际中自然不能只发一次命令就断开连接，实际中可能需要用一个循环保持长久的连接。实际中还需要考虑如果发送了命令之后很长时间一直没有收到返回信息的情况（可以考虑设置个超时时间）
 
 
 
