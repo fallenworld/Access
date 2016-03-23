@@ -19,11 +19,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <errno.h>
-
-// GPIO head file on raspberry
-#ifdef TARGET_RASPBERRY
-#include <>
-#endif
+#include "access_helper.h"
 
 #define SOCKET_LISTEN_QUEUE_SIZE 10
 #define SOCKET_BUF_SIZE 512
@@ -31,150 +27,15 @@
 #define AUTHENTIC_FAIL_RETURN "fail"
 #define SOCKET_FILE_PATH "./access_socket"
 
-char request_buf[SOCKET_BUF_SIZE];
-char response_buf[SOCKET_BUF_SIZE];
-int client_connected = 0;
-pthread_mutex_t connected_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t response_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t request_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t response_cond = PTHREAD_COND_INITIALIZER;
-pthread_cond_t request_cond = PTHREAD_COND_INITIALIZER;
+void checkRaspberryConnect(fd_set* ready_set, int tcp_fd);
 
-/*
- * @return a file descriptor for the new socket, or -1 for errors.
- */
-int create_socket()
-{
-    /* Create socket */
-    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (socket_fd < 0)
-    {
-        perror("Fail to create socket");
-        return -1;
-    }
-    /* Set socket properties */
-    int keep_alive = 1;
-    int keep_time = 180;
-    int keep_interval = 10;
-    int keep_count = 3;
-    if (setsockopt(socket_fd, SOL_SOCKET, SO_KEEPALIVE, &keep_alive, sizeof(keep_alive)) < 0)
-    {
-        perror("Cannot set socket property SO_KEEPALIVE");
-        return -1;
-    }
-    if (setsockopt(socket_fd, SOL_TCP, TCP_KEEPIDLE, &keep_time, sizeof(keep_time)) < 0)
-    {
-        perror("Cannot set socket property TCP_KEEPIDLE");
-        return -1;
-    }
-    if (setsockopt(socket_fd, SOL_TCP, TCP_KEEPINTVL, &keep_interval, sizeof(keep_interval)) < 0)
-    {
-        perror("Cannot set socket property TCP_KEEPINTVL");
-        return -1;
-    }
-    if (setsockopt(socket_fd, SOL_TCP, TCP_KEEPCNT, &keep_count, sizeof(keep_count)) < 0)
-    {
-        perror("Cannot set socket property TCP_KEEPCNT");
-        return -1;
-    }
-    return socket_fd;
-}
+void checkLocalConnect(fd_set* ready_set, int local_fd);
 
-/*
- * create a local socket to receive data from WeiXin
- */
-void* start_local_socket(void* arg)
-{
-    int ret;
-    /* Create socket */
-    int local_fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (local_fd < 0)
-    {
-        perror("Fail to create local socket");
-        exit(1);
-    }
-    /* Set the socket address */
-    unlink(SOCKET_FILE_PATH);
-    struct sockaddr_un address;
-    memset(&address, 0, sizeof(address));
-    address.sun_family = AF_UNIX;
-    strcpy(address.sun_path, SOCKET_FILE_PATH);
-    /* bind */
-    ret = bind(local_fd, (struct sockaddr*)&address, sizeof(address));
-    if (ret < 0)
-    {
-        perror("Local socket bind failed");
-        exit(1);
-    }
-    /* listen */
-    ret = listen(local_fd, SOCKET_LISTEN_QUEUE_SIZE);
-    if (ret < 0)
-    {
-        perror("Local socket listen failed");
-        exit(1);
-    }
-    /* main loop, handle data from WeiXin */
-    int wx_fd = 0;
-    for (;;)
-    {
-        /* Wait WeiXin server to connect */
-    	wx_fd = accept(local_fd, NULL, NULL);
-        if (wx_fd < 0)
-        {
-            close(wx_fd);
-            continue;
-        }
-        puts("WeiXin server connected");
-        char recv_buf[SOCKET_BUF_SIZE];
-        for(;;)
-        {
-            memset(recv_buf, 0, sizeof(recv_buf));
-            /* Receive data from WeiXin */
-            ret = recv(wx_fd, recv_buf, SOCKET_BUF_SIZE, 0);
-            if (ret <= 0)
-            {
-                perror("WeiXin server disconnected");
-                close(wx_fd);
-                break;
-            }
-            int is_client_connected;
-            pthread_mutex_lock(&connected_lock);
-            is_client_connected = client_connected;
-            pthread_mutex_unlock(&connected_lock);
-            char* response;
-            if (is_client_connected)
-            {
-                /* Send data to local */
-                pthread_mutex_lock(&request_lock);
-                strcpy(request_buf, recv_buf);
-                pthread_mutex_unlock(&request_lock);
-                pthread_cond_signal(&request_cond);
-                /* Receive data from local */
-                pthread_mutex_lock(&response_lock);
-                while (response_buf[0] == 0)
-                {
-                	pthread_cond_wait(&response_cond, &response_lock);
-                }
-                pthread_mutex_unlock(&response_lock);
-                response = response_buf;
-            }
-            else
-            {
-            	response = "fail:raspberry disconnected";
-            }
-            /* Send data to WeiXin */
-            ret = send(wx_fd, response, strlen(response) + 1, 0);
-            if (ret < 0)
-            {
-                perror("WeiXin server disconnected");
-                close(wx_fd);
-                break;
-            }
-            memset(response_buf, 0, SOCKET_BUF_SIZE);
-        }
-    }
-    return NULL;
-}
+void checkRaspberryData(fd_set* ready_set);
+
+void checkLocalData(fd_set* ready_set);
+
+void handleIO(int tcp_fd, int local_fd);
 
 int main(int argc, char* argv[])
 {
@@ -184,43 +45,73 @@ int main(int argc, char* argv[])
         puts("Usage : access_server server_port key\n");
         return 1;
     }
-    memset(request_buf, 0 ,SOCKET_BUF_SIZE);
-    memset(response_buf, 0 ,SOCKET_BUF_SIZE);
-    /* Thread which runs local socket */
-    pthread_t local_socket_thread;
-    ret = pthread_create(&local_socket_thread, NULL, start_local_socket, NULL);
-    if (ret != 0)
+    /* start tcp listening */
+    int tcp_fd = open_listenfd(atoi(argv[2]), SOCKET_LISTEN_QUEUE_SIZE);
+    if (tcp_fd < 0)
     {
-        puts("Cannot create thread");
-        return 1;
+        exit(1);
     }
-    /* Create socket */
-    int socket_fd = create_socket();
-    if (socket_fd < 0)
+    /* start local socket */
+    int local_fd = open_localfd(SOCKET_FILE_PATH, SOCKET_LISTEN_QUEUE_SIZE);
+    if (local_fd < 0)
     {
-        puts("Failed to create remote socket");
-        return 1;
+        exit(1);
     }
-    /* Set the socket address */
-    struct sockaddr_in server_address;
-    memset(&server_address, 0, sizeof(struct sockaddr_in));
-    server_address.sin_family = AF_INET;
-    server_address.sin_port = htons(atoi(argv[1]));
-    server_address.sin_addr.s_addr = htonl(INADDR_ANY);
-    /* Bind to port */
-    ret = bind(socket_fd, (struct sockaddr*)&server_address, sizeof(struct sockaddr_in));
-    if ( ret < 0)
+    /* main loop */
+    handleIO(tcp_fd, local_fd);
+}
+
+
+void handleIO(int tcp_fd, int local_fd)
+{
+    /* add tcp fd and local socket fd to read set */
+    fd_set read_set;
+    fd_set ready_set;
+    FD_ZERO(&read_set);
+    FD_SET(tcp_fd, &read_set);
+    FD_SET(local_fd, &read_set);
+    int ret;
+    int maxfd = (tcp_fd > local_fd) ? tcp_fd : local_fd;
+    /* main loop */
+    for(;;)
     {
-        perror("Remote Socket bind failed");
-        return 1;
+        ready_set = read_set;
+        ret = select(max_fd + 1, &ready_set, NULL, NULL, NULL);
+        if (ret < 0)
+        {
+            puts("Error occurs when executing select function");
+            exit(1);
+        }
+        checkRaspberryConnect(&ready_set, tcp_fd);
+        checkLocalConnect(&ready_set, local_fd);
+        checkRaspberryData(&ready_set);
+        checkLocalData(&ready_set);
     }
-    /* Listen */
-    ret = listen(socket_fd, SOCKET_LISTEN_QUEUE_SIZE);
-    if (ret < 0)
-    {
-        perror("Remote Socket listen failed");
-        return 1;
-    }
+}
+
+
+void checkRaspberryConnect(fd_set* ready_set, int tcp_fd)
+{
+
+}
+
+void checkLocalConnect(fd_set* ready_set, int local_fd)
+{
+
+}
+
+void checkRaspberryData(fd_set* ready_set)
+{
+
+}
+
+void checkLocalData(fd_set* ready_set)
+{
+
+}
+
+
+
     /* Main loop, wait for the raspberry to connect */
     char recv_buf[SOCKET_BUF_SIZE];
     int client_socket_fd = 0;
@@ -329,4 +220,17 @@ int main(int argc, char* argv[])
         return 1;
     }
     return 0;
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+

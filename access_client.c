@@ -14,200 +14,142 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "access_helper.h"
+#include "access_commands.h"
 
-#define SOCKET_RECV_BUF_SIZE 512
+/* to be authenticated by the server
+ * @param file desceipter
+ * @param key the authentic key
+ * @return return 0 for success, 1 for failure, -1 for network errors */
+int authenticate(int fd, char* key);
 
-#define DISCONNECT(fd, log) \
-    do \
-    { \
-        puts( (log) ); \
-        close( (fd) ); \
-        sleep(2); \
-    } \
-    while(0)
-
-#define DISCONNECT_PERROR(fd, log) \
-    do \
-    { \
-        perror( (log) ); \
-        close( (fd) ); \
-        sleep(2); \
-    } \
-    while(0)
-
-/*
- * @return a file descriptor for the new socket, or -1 for errors.
- */
-int create_socket()
-{
-    /* Create socket */
-    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (socket_fd < 0)
-    {
-        perror("Fail to create socket");
-        return -1;
-    }
-    /* Set socket properties */
-    int keep_alive = 1;
-    int keep_time = 180;
-    int keep_interval = 10;
-    int keep_count = 3;
-    if (setsockopt(socket_fd, SOL_SOCKET, SO_KEEPALIVE, &keep_alive, sizeof(keep_alive)) < 0)
-    {
-        perror("Cannot set socket property SO_KEEPALIVE");
-        return -1;
-    }
-    if (setsockopt(socket_fd, SOL_TCP, TCP_KEEPIDLE, &keep_time, sizeof(keep_time)) < 0)
-    {
-        perror("Cannot set socket property TCP_KEEPIDLE");
-        return -1;
-    }
-    if (setsockopt(socket_fd, SOL_TCP, TCP_KEEPINTVL, &keep_interval, sizeof(keep_interval)) < 0)
-    {
-        perror("Cannot set socket property TCP_KEEPINTVL");
-        return -1;
-    }
-    if (setsockopt(socket_fd, SOL_TCP, TCP_KEEPCNT, &keep_count, sizeof(keep_count)) < 0)
-    {
-        perror("Cannot set socket property TCP_KEEPCNT");
-        return -1;
-    }
-    return socket_fd;
-}
-
-int open()
-{
-    return 1;
-}
-
-int close()
-{
-	return 1;
-}
-
-int getState()
-{
-	return 1;
-}
-
+/* handle a connection
+ * @param fd the socket file descripter */
+void handle_connection(int fd);
 
 int main(int argc, char* argv[])
 {
     int ret = 0;
+    /* check arguments */
     if (argc != 3)
     {
         puts("Usage : access_client server_address key");
         return 1;
     }
-    int socket_fd;
-    /* Set the server address */
-    char* ip_str = strtok(argv[1], ":");
-    char* port_str = strtok(NULL, ":");
-    struct sockaddr_in server_address;
-    memset(&server_address, 0, sizeof(struct sockaddr_in));
-    server_address.sin_family = AF_INET;
-    server_address.sin_port = htons(atoi(port_str));
-    ret = inet_pton(AF_INET, ip_str, &server_address.sin_addr);
-    if (ret <= 0)
-    {
-        puts("Error occurs when converting the IP string to bytes");
-        return -1;
-    }
-    /* The information to be output on console */
-    char info[128] = "Connecting to the server ";
-    strcat(info, argv[1]);
-    /* Connect the server*/
     for (;;)
     {
-        socket_fd = create_socket();
-        if (socket_fd < 0)
+        /* connect to the server*/
+        printf("Connecting to the server %s", argv[1]);
+        int fd = open_clientfd(argv[1]);
+        if (fd < 0)
         {
-            puts("Failed to create socket");
-            return 1;
-        }
-        /* Connect the server */
-        puts(info);
-        ret = connect(socket_fd, (struct sockaddr*)&server_address, sizeof(struct sockaddr_in));
-        if (ret < 0)
-        {
-            DISCONNECT_PERROR(socket_fd, "Cannot connect to server, reconnect later");
             continue;
         }
         puts("Connect server successfully");
-        /* To be authenticated by the server */
+        /* authentic */
         puts("Being authenticated by the server...");
-        /* Try to send authentic data to the server
-         * if failed to send the data, send it again
-         * if failed for 3 times, reconnect to the server
-         */
-        int send_success = 0;
-        char* key = argv[2];
-        int i;
-        for (i = 0; i < 3; i++)
+        ret = authenticate(fd, argv[2]);
+        if (ret < 0)
         {
-            ret = send(socket_fd, key, strlen(key) + 1, 0);
-            if (ret > 0)
-            {
-                send_success = 1;
-                break;
-            }
-        }
-        if (!send_success)
-        {
-            DISCONNECT_PERROR(socket_fd, "Failed to send the authentic data to the server, reconnect later");
             continue;
         }
-        char recv_buf[SOCKET_RECV_BUF_SIZE];
-        ret = recv(socket_fd, recv_buf, sizeof(recv_buf), 0);
-        if (ret > 0)
+        else if (ret == 1)
         {
-            if (strcmp(recv_buf, "success") != 0)
-            {
-                DISCONNECT(socket_fd, "Authentic failed");
-                return 1;
-            }
+            exit(1);
         }
-        else
+        else if (ret == 0)
         {
-            DISCONNECT_PERROR(socket_fd, "Server disconnected, reconnect later");
-            continue;
-        }
-        puts("Successfully authenticated");
-        /* Receive data from the server */
-        for (;;)
-        {
-            ret = recv(socket_fd, recv_buf, sizeof(recv_buf), 0);
-            if (ret > 0)
-            {
-                printf("data received : %s\n", recv_buf);
-                char* info;
-                int return_code = 0;
-                if (strcmp(recv_buf, "open"))
-                {
-                	return_code = open();
-                }
-                else if (strcmp(recv_buf, "close"))
-                {
-                	return_code = close();
-                }
-                else if (strcmp(recv_buf, "getState"))
-                {
-                	return_code = getState();
-                }
-                /* Send data back */
-                ret = send(socket_fd, "success", sizeof("success"), 0);
-                if (ret <= 0)
-                {
-                    DISCONNECT(socket_fd, "Server disconnected, reconnect later");
-                    break;
-                }
-            }
-            else
-            {
-                DISCONNECT(socket_fd, "Server disconnected, reconnect later");
-                break;
-            }
+            handle_connection(fd);
         }
     }
     return 0;
 }
+
+
+int authenticate(int fd, char* key)
+{
+    /* send the authetic data */
+    if (send(fd, key, strlen(key) + 1, 0) <= 0)
+    {
+        perror("Cannot send authentic data to server, disconnect");
+        close(fd);
+        return -1;
+    }
+    /* receive the return message from server */
+    char recv_buf[16];
+    if (recv(fd, recv_buf, sizeof(recv_buf), 0) > 0)
+    {
+        if (strcmp(recv_buf, "success") == 0)
+        {
+            /* the key is correct */
+            puts("Authentic successfully");
+            return 0;
+        }
+        else
+        {
+            /* the key is incorrect */
+            puts("Authentic fail");
+            return 1;
+        }
+    }
+    else
+    {
+        perror("Cannot receive data to server, disconnect");
+        close(fd);
+        return -1;
+    }
+}
+
+void handle_connection(int fd)
+{
+    int ret;
+    char recv_buf[256];
+    for (;;)
+    {
+        ret = recv(fd, recv_buf, sizeof(recv_buf), 0);
+        if (ret > 0)
+        {
+            printf("data received : %s\n", recv_buf);
+            char* info;
+            int return_code = 0;
+            if (strcmp(recv_buf, "open") == 0)
+            {
+                return_code = openDoor();
+            }
+            else if (strcmp(recv_buf, "close") == 0)
+            {
+                return_code = closeDoor();
+            }
+            else if (strcmp(recv_buf, "getState") == 0)
+            {
+            	return_code = getDoorState();
+            }
+            /* Send data back */
+            ret = send(socket_fd, "success", sizeof("success"), 0);
+            if (ret <= 0)
+            {
+                puts("Cannot send data to server, disconnect");
+                close(fd);
+                break;
+            }
+        }
+        else
+        {
+            puts("Cannot receive data from server, disconnect");
+            close(fd);
+            break;
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
