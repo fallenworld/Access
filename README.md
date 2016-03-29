@@ -11,11 +11,14 @@
 编译所需的条件：Linux系统，系统中安装了gcc
 
 **服务器端：**
-命令行下cd到源码的目录，输入make server，接着在源码的目录下就会编译出一个名为access_server的可执行文件
+命令行下cd到源码的目录，输入make ver=server，接着在源码的目录下就会编译出一个名为access_server的可执行文件
 
 
 **树莓派端：**
-命令行下cd到源码的目录，输入make client，接着在源码的目录下就会编译出一个名为access_client的可执行文件
+命令行下cd到源码的目录，输入make ver=client，接着在源码的目录下就会编译出一个名为access_client的可执行文件
+
+**测试版本：**
+如果要在本地进行测试的话（测试的时候并不会去真正的控制门禁），命令行下cd到源码的目录，输入make，接着在源码的目录下就会编译出名为access_client和access_server的两个可执行文件
 
 </br>
 
