@@ -109,6 +109,7 @@ int open_listenfd(int port, int listen_queue_size)
         perror("Socket listen failed");
         return -1;
     }
+    return listenfd;
 }
 
 int open_clientfd(const char* hostaddress)
@@ -162,14 +163,3 @@ int accept_safe(int fd)
     }
     return ret;
 }
-
-
-
-
-
-
-
-
-
-
-

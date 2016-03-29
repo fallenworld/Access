@@ -41,17 +41,19 @@ int local_client_fd = -1;
 int raspberry_fd = -1;
 fd_set read_set;
 char* key = NULL;
+int max_fd = -1;
 
 int main(int argc, char* argv[])
 {
     int ret = 0;
     if (argc != 3)
     {
-        puts("Usage : access_server server_port key\n");
+        puts("Usage : access_server server_port key");
         return 1;
     }
+    key = argv[2];
     /* start tcp listening */
-    int tcp_fd = open_listenfd(atoi(argv[2]), SOCKET_LISTEN_QUEUE_SIZE);
+    int tcp_fd = open_listenfd(atoi(argv[1]), SOCKET_LISTEN_QUEUE_SIZE);
     if (tcp_fd < 0)
     {
         exit(1);
@@ -64,6 +66,7 @@ int main(int argc, char* argv[])
     }
     /* main loop */
     handleIO(tcp_fd, local_fd);
+    return 0;
 }
 
 
@@ -75,7 +78,7 @@ void handleIO(int tcp_fd, int local_fd)
     FD_SET(tcp_fd, &read_set);
     FD_SET(local_fd, &read_set);
     int ret;
-    int max_fd = (tcp_fd > local_fd) ? tcp_fd : local_fd;
+    max_fd = (tcp_fd > local_fd) ? tcp_fd : local_fd;
     /* main loop */
     for(;;)
     {
@@ -98,6 +101,7 @@ void checkRaspberryConnect(fd_set* ready_set, int tcp_fd)
 {
     if (raspberry_fd == -1 && FD_ISSET(tcp_fd, ready_set))
     {
+        puts("Raspberry connected");
         raspberry_fd = accept_safe(tcp_fd);
         if (raspberry_fd < 0)
         {
@@ -108,6 +112,7 @@ void checkRaspberryConnect(fd_set* ready_set, int tcp_fd)
         if (raspberry_fd != -1)
         {
             FD_SET(raspberry_fd, &read_set);
+            max_fd = (raspberry_fd > max_fd) ? raspberry_fd : max_fd;
         }
     }
 }
@@ -126,12 +131,12 @@ void authenticateRaspberry()
     // check key
     if (strcmp(buffer, key) == 0) // received key matches the key on server
     {
-        send(raspberry_fd, buffer, strlen("success") + 1, 0);
+        send(raspberry_fd, "success", strlen("success") + 1, 0);
         puts("Raspberry authenticate successfully");
     }
     else // received key doesn't match the key on server
     {
-        send(raspberry_fd, buffer, strlen("success") + 1, 0);
+        send(raspberry_fd, "fail", strlen("fail") + 1, 0);
         puts("Raspberry authenticate failed");
         raspberry_fd = -1;
     }
@@ -148,6 +153,7 @@ void checkLocalConnect(fd_set* ready_set, int local_fd)
             return;
         }
         FD_SET(local_client_fd, &read_set);
+        max_fd = (local_client_fd > max_fd)? local_client_fd : max_fd;
     }
 }
 
@@ -162,6 +168,7 @@ void checkRaspberryData(fd_set* ready_set)
         if (ret <= 0)
         {
             puts("Raspberry disconnected");
+            FD_CLR(raspberry_fd, &read_set);
             close(raspberry_fd);
             raspberry_fd = -1;
             return;
@@ -169,10 +176,11 @@ void checkRaspberryData(fd_set* ready_set)
         // send data to weixin
         if (local_client_fd != -1)
         {
-            ret = send(local_client_fd, buffer, sizeof(buffer), 0);
+            ret = send(local_client_fd, buffer, strlen(buffer) + 1, 0);
             if (ret <= 0)
             {
                 puts("WeiXin disconnected");
+                FD_CLR(local_client_fd, &read_set);
                 close(local_client_fd);
                 local_client_fd = -1;
                 return;
@@ -193,29 +201,33 @@ void checkLocalData(fd_set* ready_set)
         if (ret <= 0)
         {
             puts("WeiXin program disconnected");
+            FD_CLR(local_client_fd, &read_set);
             close(local_client_fd);
             local_client_fd = -1;
             return;
         }
+        printf("Request received from WeiXin : %s\n", buffer);
         // send data to raspberry
         if (raspberry_fd != -1)
         {
-            ret = send(raspberry_fd, buffer, sizeof(buffer), 0);
+            ret = send(raspberry_fd, buffer, strlen(buffer) + 1, 0);
             if (ret <= 0)
             {
                 puts("Raspberry disconnected");
+                FD_CLR(raspberry_fd, &read_set);
                 close(raspberry_fd);
                 raspberry_fd = -1;
                 return;
             }
         }
-        else // if raspberry is neither connected nor authenticated, send fail message to weixin
+        else // if raspberry isn't connected, send fail message to weixin
         {
             char* info = "fail:1";
             ret = send(local_client_fd, info, strlen(info) + 1, 0);
             if (ret <= 0)
             {
                 puts("WeiXin program disconnected");
+                FD_CLR(local_client_fd, &read_set);
                 close(local_client_fd);
                 local_client_fd = -1;
                 return;

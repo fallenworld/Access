@@ -39,10 +39,12 @@ int main(int argc, char* argv[])
     for (;;)
     {
         /* connect to the server*/
-        printf("Connecting to the server %s", argv[1]);
+        printf("Connecting to the server %s\n", argv[1]);
         int fd = open_clientfd(argv[1]);
         if (fd < 0)
         {
+            puts("Connect failed, reconnect later");
+            sleep(2);
             continue;
         }
         puts("Connect server successfully");
@@ -51,10 +53,13 @@ int main(int argc, char* argv[])
         ret = authenticate(fd, argv[2]);
         if (ret < 0)
         {
+            puts("Server disconncted, reconnect later");
+            sleep(2);
             continue;
         }
         else if (ret == 1)
         {
+            puts("Key is not correct");
             exit(1);
         }
         else if (ret == 0)
@@ -106,17 +111,17 @@ void handle_connection(int fd)
     char recv_buf[256];
     for (;;)
     {
+        memset(recv_buf, 0, sizeof(recv_buf));
         ret = recv(fd, recv_buf, sizeof(recv_buf), 0);
         if (ret > 0)
         {
-            printf("data received : %s\n", recv_buf);
-            char* info;
+            printf("Request received : %s\n", recv_buf);
             int return_code = 0;
-            if (strcmp(recv_buf, "open") == 0)
+            if (strcmp(recv_buf, "openDoor") == 0)
             {
                 return_code = openDoor();
             }
-            else if (strcmp(recv_buf, "close") == 0)
+            else if (strcmp(recv_buf, "closeDoor") == 0)
             {
                 return_code = closeDoor();
             }
@@ -125,7 +130,7 @@ void handle_connection(int fd)
             	return_code = getDoorState();
             }
             /* Send data back */
-            ret = send(fd, "success", sizeof("success"), 0);
+            ret = send(fd, "success", strlen("success") + 1, 0);
             if (ret <= 0)
             {
                 puts("Cannot send data to server, disconnect");
