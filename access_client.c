@@ -125,7 +125,7 @@ void handle_connection(int fd)
             	return_code = getDoorState();
             }
             /* Send data back */
-            ret = send(socket_fd, "success", sizeof("success"), 0);
+            ret = send(fd, "success", sizeof("success"), 0);
             if (ret <= 0)
             {
                 puts("Cannot send data to server, disconnect");
@@ -141,15 +141,3 @@ void handle_connection(int fd)
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-

@@ -28,4 +28,4 @@ int open_clientfd(const char* hostaddress);
 /*
  * the accept function wrapper
  */
-int accept_safe(int fd, sockaddr* address, socklen_t* size);
+int accept_safe(int fd);

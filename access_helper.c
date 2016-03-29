@@ -104,7 +104,7 @@ int open_listenfd(int port, int listen_queue_size)
         perror("Socket bind failed");
         return -1;
     }
-    if (listen(fd, listen_queue_size) < 0)
+    if (listen(listenfd, listen_queue_size) < 0)
     {
         perror("Socket listen failed");
         return -1;
@@ -142,19 +142,19 @@ int open_clientfd(const char* hostaddress)
         return -1;
     }
     /* Connect */
-    if (connect(socket_fd, (struct sockaddr*)&server_address, sizeof(struct sockaddr_in)) < 0)
+    if (connect(clientfd, (struct sockaddr*)&server_address, sizeof(struct sockaddr_in)) < 0)
     {
         free(address_str);
         perror("Cannot connect to server");
         close(clientfd);
-        return -1
+        return -1;
     }
     return clientfd;
 }
 
-int accept_safe(int fd, sockaddr* address, socklen_t* size)
+int accept_safe(int fd)
 {
-    int ret = accept(fd, address, size);
+    int ret = accept(fd, NULL, NULL);
     if (ret < 0)
     {
         perror("Accept error");
