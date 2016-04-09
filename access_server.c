@@ -222,7 +222,7 @@ void checkLocalData(fd_set* ready_set)
         }
         else // if raspberry isn't connected, send fail message to weixin
         {
-            char* info = "fail:1";
+            char* info = "fail:-1";
             ret = send(local_client_fd, info, strlen(info) + 1, 0);
             if (ret <= 0)
             {

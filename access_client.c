@@ -130,7 +130,16 @@ void handle_connection(int fd)
             	return_code = getDoorState();
             }
             /* Send data back */
-            ret = send(fd, "success", strlen("success") + 1, 0);
+            char result[512];
+            if (return_code < 0)
+            {
+                sprintf(result, "success:%d", return_code);
+            }
+            else
+            {
+                sprintf(result, "fail:%d", return_code);
+            }
+            ret = send(fd, result, strlen(result) + 1, 0);
             if (ret <= 0)
             {
                 puts("Cannot send data to server, disconnect");
