@@ -28,7 +28,7 @@ access_server.o:access_server.c
 access_helper.o:access_helper.c
 	$(cc) -c access_helper.c
 access_commands.o:
-	$(cc) -c access_commands.c $(COMMANDS_FLAG)
+	$(cc) -c access_commands.c $(COMMAND_FLAG)
 
 .PHONY:clean
 clean:

@@ -15,6 +15,8 @@ int writeFile(int state)
     if (fp == NULL)
     {
         puts("Cannot open file access_state");
+        fclose(fp);
+        return -1
     }
     int ret = fwrite(&state, sizeof(int), 1, fp);
     if(ret <= 0)
@@ -32,6 +34,8 @@ int readFile()
     if (fp == NULL)
     {
         puts("Cannot open file access_state");
+        fclose(fp);
+        return -1;
     }
     int ret = fread(&state, sizeof(int), 1, fp);
     if(ret <= 0)
@@ -99,6 +103,7 @@ int getDoorState()
     puts("Executing getDoorState");
 #ifdef TARGET_RASPBERRY
     int state = readFile();
+    printf("state:%d\n", state);
     if (state != 0 && state != 1)
     {
         return -2;

@@ -131,7 +131,7 @@ void handle_connection(int fd)
             }
             /* Send data back */
             char result[512];
-            if (return_code < 0)
+            if (return_code >= 0)
             {
                 sprintf(result, "success:%d", return_code);
             }
