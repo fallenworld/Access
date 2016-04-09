@@ -21,13 +21,13 @@ int writeFile(int state)
     {
         puts("Cannot write file access_state");
     }
-    fclose(fd);
+    fclose(fp);
     return ret;
 }
 
 int readFile()
 {
-    int state
+    int state;
     FILE* fp = fopen("access_state", "rb");
     if (fp == NULL)
     {
@@ -38,7 +38,7 @@ int readFile()
     {
         puts("Cannot read file access_state");
     }
-    fclose(fd);
+    fclose(fp);
     return ret;
 }
 
@@ -101,7 +101,7 @@ int getDoorState()
     int state = readFile();
     if (state != 0 && state != 1)
     {
-        return -2
+        return -2;
     }
     else
     {
