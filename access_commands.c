@@ -1,13 +1,24 @@
 #include "access_commands.h"
+
 #ifdef TARGET_RASPBERRY
+
 #include <wiringpi.h>
+int is_setup = 0;
+#define ACCESS_PIN 15
+
 #endif
 
 int openDoor()
 {
     puts("Executing openDoor");
 #ifdef TARGET_RASPBERRY
-    // TODO
+    if (!is_setup)
+    {
+        wiringPiSetup();
+        pinMode(ACCESS_PIN, OUTPUT);
+        is_setup = 1;
+    }
+    digitalWrite(ACCESS_PIN, LOW);
     if (getDoorState() == 1)
     {
         return 0;
@@ -26,7 +37,13 @@ int closeDoor()
 {
     puts("Executing closeDoor");
 #ifdef TARGET_RASPBERRY
-    // TODO
+    if (!is_setup)
+    {
+        wiringPiSetup();
+        pinMode(ACCESS_PIN, OUTPUT);
+        is_setup = 1;
+    }
+    digitalWrite(ACCESS_PIN, HIGH);
     if (getDoorState() == 0)
     {
         return 0;
