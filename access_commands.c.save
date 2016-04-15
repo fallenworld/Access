@@ -9,7 +9,7 @@ int is_setup = 0;
 
 #endif
 
-char writeFile(char state)
+int writeFile(char state)
 {
     FILE* fp = fopen("access_state", "wt+");
     if (fp == NULL)
@@ -18,8 +18,8 @@ char writeFile(char state)
         fclose(fp);
         return -1;
     }
-    char ret = (char)fputc(state, fp);
-    if(ret != state)
+    int ret = fwrite(&state, sizeof(int), 1, fp);
+    if(ret <= 0)
     {
         puts("Cannot write file access_state");
     }
@@ -27,23 +27,23 @@ char writeFile(char state)
     return ret;
 }
 
-char readFile()
+int readFile()
 {
-    char state;
-    FILE* fp = fopen("access_state", "rt");
+    int state;
+    FILE* fp = fopen("access_state", "rb");
     if (fp == NULL)
     {
         puts("Cannot open file access_state");
         fclose(fp);
         return -1;
     }
-    state = fgetc(fp);
-    if(state != 0 && state != 1)
+    int ret = fread(&state, sizeof(int), 1, fp);
+    if(ret <= 0)
     {
-        puts("Ilegal state number");
+        puts("Cannot read file access_state");
     }
     fclose(fp);
-    return state;
+    return ret;
 }
 
 int openDoor()
