@@ -32,4 +32,4 @@ access_commands.o:
 
 .PHONY:clean
 clean:
-	rm -f *.o access_client access_server access_socket
+	rm -f *.o access_client access_server
